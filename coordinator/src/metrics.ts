@@ -45,3 +45,32 @@ export const activeOrders = new Gauge({
   labelNames: ["direction"] as const,
   registers: [registry]
 });
+
+/** Reconciliation runs by result */
+export const reconciliationRuns = new Counter({
+  name: "coordinator_reconciliation_runs_total",
+  help: "Total reconciliation runs by result (success|failure)",
+  labelNames: ["result"] as const,
+  registers: [registry]
+});
+
+/** Reconciliation errors */
+export const reconciliationErrors = new Counter({
+  name: "coordinator_reconciliation_errors_total",
+  help: "Total reconciliation run failures",
+  registers: [registry]
+});
+
+/** Unix timestamp of last completed reconciliation run */
+export const reconciliationLastRun = new Gauge({
+  name: "coordinator_reconciliation_last_run_timestamp_seconds",
+  help: "Unix timestamp of the most recent reconciliation run",
+  registers: [registry]
+});
+
+/** Total events replayed by reconciler */
+export const reconciliationEventsReplayed = new Counter({
+  name: "coordinator_reconciliation_events_replayed_total",
+  help: "Total on-chain events replayed by the reconciler",
+  registers: [registry]
+});

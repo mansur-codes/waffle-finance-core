@@ -11,6 +11,7 @@ import { quotesRoutes } from "./routes/quotes.js";
 import type { OrderService } from "../services/order-service.js";
 import type { SecretService } from "../services/secret-service.js";
 import type { QuoteService } from "../services/quote-service.js";
+import type { ReconciliationStatus } from "../reconciliation/reconciler.js";
 
 export interface AppDeps {
   log: Logger;
@@ -18,6 +19,7 @@ export interface AppDeps {
   orders: OrderService;
   secrets: SecretService;
   quotes: QuoteService;
+  getReconciliationStatus?: () => ReconciliationStatus;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -41,7 +43,7 @@ export function createApp(deps: AppDeps): Express {
     next();
   });
 
-  app.use(healthRoutes());
+  app.use(healthRoutes(deps.getReconciliationStatus));
   app.use(metricsRoutes());
   // Pass the logger into route factories so rate-limit abuse events are
   // surfaced through the application's structured log stream.

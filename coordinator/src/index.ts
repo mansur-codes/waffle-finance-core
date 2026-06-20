@@ -9,6 +9,7 @@ import { createApp } from "./server/app.js";
 import { EthereumListener } from "./listeners/ethereum-listener.js";
 import { SorobanListener } from "./listeners/soroban-listener.js";
 import { SolanaListener } from "./listeners/solana-listener.js";
+import { Reconciler } from "./reconciliation/reconciler.js";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -21,17 +22,27 @@ async function main(): Promise<void> {
   const secrets = new SecretService(orders, log);
   const quotes = new QuoteService(log);
 
+  const reconciler = new Reconciler(cfg, orders, log);
+
   const app = createApp({
     log,
     corsOrigin: cfg.corsOrigin,
     orders,
     secrets,
-    quotes
+    quotes,
+    getReconciliationStatus: () => reconciler.getStatus()
   });
 
   const server = app.listen(cfg.port, () => {
     log.info({ port: cfg.port }, "HTTP server listening");
   });
+
+  // Run reconciliation once at startup, then every poll interval.
+  void reconciler.run();
+  const reconcileInterval = setInterval(
+    () => void reconciler.run(),
+    cfg.pollIntervalMs * 4 // ~1 min at default 15s poll
+  );
 
   const ethListener = new EthereumListener(cfg, orders, log);
   const sorobanListener = new SorobanListener(cfg, orders, log);
@@ -42,6 +53,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, "shutting down");
+    clearInterval(reconcileInterval);
     ethListener.stop();
     sorobanListener.stop();
     solanaListener.stop();
