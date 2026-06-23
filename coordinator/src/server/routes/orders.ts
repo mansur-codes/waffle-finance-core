@@ -101,15 +101,41 @@ export function ordersRoutes(orders: OrderService, log?: Logger): Router {
       res.status(400).json({ error: "address_required" });
       return;
     }
+
+    // Support both cursor-based (preferred) and offset-based (legacy) pagination
+    const cursor = req.query.cursor as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    const offset = Math.max(Number(req.query.offset ?? 0), 0);
+
     try {
-      const list = await orders.history(address, limit, offset);
-      res.json({
-        transactions: list.map((o) => serialiseOrder(o)).filter(Boolean),
-        pagination: { limit, offset, count: list.length }
-      });
+      if (cursor !== undefined || req.query.offset === undefined) {
+        // Use cursor-based pagination (preferred)
+        const result = await orders.historyWithCursor(address, limit, cursor);
+        res.json({
+          transactions: result.orders.map((o) => serialiseOrder(o)).filter(Boolean),
+          pagination: {
+            limit,
+            count: result.orders.length,
+            nextCursor: result.nextCursor
+          }
+        });
+      } else {
+        // Legacy offset-based pagination for backward compatibility
+        const offset = Math.max(Number(req.query.offset ?? 0), 0);
+        const list = await orders.history(address, limit, offset);
+        res.json({
+          transactions: list.map((o) => serialiseOrder(o)).filter(Boolean),
+          pagination: { limit, offset, count: list.length }
+        });
+      }
     } catch (err) {
+      // Handle invalid cursor gracefully
+      if (err instanceof Error && err.message.includes('Invalid cursor')) {
+        res.status(400).json({ 
+          error: "invalid_cursor", 
+          message: "The provided cursor is invalid or expired" 
+        });
+        return;
+      }
       next(err);
     }
   });
