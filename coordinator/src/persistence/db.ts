@@ -182,7 +182,7 @@ const POSTGRES_MIGRATION_FILES = [
   "003_secret_encryption.sql",
   "004_query_optimizations.sql",
   "005_schema_migrations.sql",
-  "006_stale_cleanup.sql",
+  "006_stale_cleanup_postgres.sql",
 ] as const;
 
 // ── Public helpers ───────────────────────────────────────────────────────────
@@ -325,6 +325,8 @@ async function openPostgresDatabase(url: string): Promise<PostgresDatabase> {
       // Fallback to SQLite version if PostgreSQL-specific version doesn't exist.
       if (file === "002_solana_support_postgres.sql") {
         migration = readFileSync(resolve(migrationsDir, "002_solana_support.sql"), "utf8");
+      } else if (file === "006_stale_cleanup_postgres.sql") {
+        migration = readFileSync(resolve(migrationsDir, "006_stale_cleanup.sql"), "utf8");
       } else {
         throw new Error(`Migration file not found: ${file}`);
       }
