@@ -5,8 +5,9 @@ import type { OrderRow } from "../../persistence/orders-repo.js";
 import type { OrderService } from "../../services/order-service.js";
 import { OrderValidationError } from "../../services/order-service.js";
 import { announceSchema } from "../../validation/announce.js";
-import { historyAddressSchema } from "../../validation/address.js";
+import { historyAddressSchema, orderIdSchema } from "../../validation/address.js";
 import { makeRateLimiter, loadApiKeys, loadTrustedProxies } from "../middleware/ratelimit.js";
+import type { AbuseDetector } from "../middleware/abuse-detection.js";
 import { validationError, orderValidationError, notFoundError } from "../errors.js";
 
 function serialiseOrder(order: OrderRow | null) {
@@ -48,7 +49,7 @@ function serialiseOrder(order: OrderRow | null) {
   };
 }
 
-export function ordersRoutes(orders: OrderService, log?: Logger): Router {
+export function ordersRoutes(orders: OrderService, log?: Logger, abuseDetector?: AbuseDetector): Router {
   const router = Router();
 
   const apiKeys = loadApiKeys();
@@ -62,7 +63,8 @@ export function ordersRoutes(orders: OrderService, log?: Logger): Router {
     name: "orders/announce",
     log,
     apiKeys,
-    trustedProxies
+    trustedProxies,
+    abuseDetector
   });
 
   router.post("/orders/announce", announceRateLimit, async (req, res, next) => {
@@ -93,20 +95,54 @@ export function ordersRoutes(orders: OrderService, log?: Logger): Router {
     }
     const address = parsedAddress.data;
     const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    const offset = Math.max(Number(req.query.offset ?? 0), 0);
+
+    // Support both cursor-based (preferred) and offset-based (legacy) pagination
+    const cursorParam = req.query.cursor as string | undefined;
+    const cursor = cursorParam && cursorParam.trim() !== '' ? cursorParam : undefined;
+    const offset = req.query.offset !== undefined ? Math.max(Number(req.query.offset), 0) : undefined;
+
     try {
-      const list = await orders.history(address, limit, offset);
-      res.json({
-        transactions: list.map((o) => serialiseOrder(o)).filter(Boolean),
-        pagination: { limit, offset, count: list.length }
-      });
+      // Use cursor pagination if cursor is provided, otherwise use offset (legacy default)
+      if (cursor !== undefined) {
+        // Cursor-based pagination
+        const result = await orders.historyWithCursor(address, limit, cursor);
+        res.json({
+          transactions: result.orders.map((o) => serialiseOrder(o)).filter(Boolean),
+          pagination: {
+            limit,
+            count: result.orders.length,
+            nextCursor: result.nextCursor
+          }
+        });
+      } else {
+        // Offset-based pagination (default for backward compatibility)
+        const finalOffset = offset ?? 0;
+        const list = await orders.history(address, limit, finalOffset);
+        res.json({
+          transactions: list.map((o) => serialiseOrder(o)).filter(Boolean),
+          pagination: { limit, offset: finalOffset, count: list.length }
+        });
+      }
     } catch (err) {
+      // Handle invalid cursor gracefully
+      if (err instanceof Error && err.message.includes('Invalid cursor')) {
+        res.status(400).json({
+          error: "invalid_cursor", 
+          message: "The provided cursor is invalid or expired" 
+        });
+        return;
+      }
       next(err);
     }
   });
 
   router.get("/orders/:id", async (req, res, next) => {
-    const id = req.params.id;
+    const idResult = orderIdSchema.safeParse(req.params.id);
+    if (!idResult.success) {
+      res.status(400).json(validationError(idResult.error.errors));
+      return;
+    }
+    const id = idResult.data;
     try {
       const order = await orders.get(id);
       if (!order) {
@@ -127,9 +163,14 @@ export function ordersRoutes(orders: OrderService, log?: Logger): Router {
   });
 
   router.post("/orders/:id/src-locked", async (req, res, next) => {
+    const idResult = orderIdSchema.safeParse(req.params.id);
+    if (!idResult.success) {
+      res.status(400).json(validationError(idResult.error.errors));
+      return;
+    }
     try {
       const body = lockSchema.parse(req.body);
-      await orders.recordSrcLock({ publicId: req.params.id, ...body });
+      await orders.recordSrcLock({ publicId: idResult.data, ...body });
       res.json({ ok: true });
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -145,10 +186,15 @@ export function ordersRoutes(orders: OrderService, log?: Logger): Router {
   });
 
   router.post("/orders/:id/dst-locked", async (req, res, next) => {
+    const idResult = orderIdSchema.safeParse(req.params.id);
+    if (!idResult.success) {
+      res.status(400).json(validationError(idResult.error.errors));
+      return;
+    }
     try {
       const body = lockSchema.extend({ resolver: z.string().nullable().optional() }).parse(req.body);
       await orders.recordDstLock({
-        publicId: req.params.id,
+        publicId: idResult.data,
         orderId: body.orderId,
         txHash: body.txHash,
         blockNumber: body.blockNumber,
