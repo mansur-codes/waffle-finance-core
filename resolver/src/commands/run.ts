@@ -24,8 +24,8 @@ export async function runCommand(): Promise<void> {
   }
   log.info("resolver configuration validated");
 
-  const eth = new EthereumListener(cfg.ethereum, log);
-  const stellar = new SorobanListener(cfg.soroban, cfg.pollIntervalMs, log);
+  const eth = new EthereumListener(cfg, log);
+  const stellar = new SorobanListener(cfg, cfg.pollIntervalMs, log);
   const supervisor = new Supervisor({ log, maxRestarts: 5, restartDelayMs: 5_000 });
 
   let shuttingDown = false;

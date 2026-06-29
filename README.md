@@ -157,11 +157,16 @@ cd soroban && cargo test && cd ..
 # Start coordinator
 pnpm --filter @wafflefinance/coordinator dev
 
+# Seed with demo data for local development (optional)
+pnpm --filter @wafflefinance/coordinator seed-demo
+
 # Start frontend
 pnpm --filter @wafflefinance/frontend dev
 ```
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for per-package commands, PostgreSQL setup, Stellar contract deployment, and troubleshooting notes.
+
+See [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for deployment checklists, incident response runbooks, and monitoring guidance.
 
 ---
 
